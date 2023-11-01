@@ -5,3 +5,6 @@ pillow
 fastapi
 pydantic
 loguru
+python-multipart
+uvicorn
+aiofiles

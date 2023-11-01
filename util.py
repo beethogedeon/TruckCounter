@@ -178,4 +178,4 @@ class TruckDetector:
 
                 nb_trucks = in_truck + out_truck
 
-                # return annotated_frame, nb_trucks
+                return nb_trucks

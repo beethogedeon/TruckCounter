@@ -1,6 +1,9 @@
 from os.path import join
 
 import json
+
+import aiofiles.tempfile
+import os
 from PIL import Image
 from loguru import logger
 import sys
@@ -13,6 +16,7 @@ from io import BytesIO
 import numpy as np
 from fastapi import FastAPI, Request, UploadFile, File, WebSocket, HTTPException, status, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from util import bytes_to_image, image_to_bytes, TruckDetector
@@ -117,6 +121,28 @@ async def run(image: bytes = File(...)):
     }
 
 
+@app.post("detect_from_video", tags=["Detections"])
+async def run(video: UploadFile):
+    try:
+        async with aiofiles.tempfile.NamedTemporaryFile("wb", delete=False) as temp:
+            try:
+                contents = await video.read()
+                await temp.write(contents)
+            except Exception as e:
+                return {"message": f"Error about uploaded video because {e}"}
+            finally:
+                await video.close()
+
+        truck_detector = TruckDetector(temp.name)
+        nb_trucks = await run_in_threadpool(truck_detector)
+    except Exception as e:
+        return {"message": f"Error while detecting because {e}"}
+    finally:
+        os.remove(temp.name)
+
+    return {"nb_trucks": nb_trucks}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # listen for connections
@@ -134,7 +160,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
             ret, buffer = cv2.imencode('.jpg', annotated_frame)
 
-            await websocket.send_json(json.dumps({"truck_number": truck_detector.line_zone.in_count + truck_detector.line_zone.out_count}))
+            await websocket.send_json(
+                json.dumps({"truck_number": truck_detector.line_zone.in_count + truck_detector.line_zone.out_count}))
             await websocket.send_bytes(buffer.tobytes())
     except WebSocketDisconnect:
         print("Client disconnected")
