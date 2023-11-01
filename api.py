@@ -116,7 +116,6 @@ async def run(image: bytes = File(...)):
     detected_image, nb_truck = truck_detector()
 
     return {
-        "image": detected_image,
         "nb_truck": nb_truck
     }
 
