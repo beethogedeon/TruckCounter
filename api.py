@@ -46,19 +46,19 @@ app = FastAPI(
 # from specific domains (specified in the origins argument)
 # to access resources from the FastAPI server,
 # and the client and server are hosted on different domains.
-origins = [
-    "http://localhost",
-    "http://localhost:8008",
-    "*"
-]
+# origins = [
+#    "http://localhost",
+#    "http://localhost:8008",
+#    "*"
+# ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#    CORSMiddleware,
+#    allow_origins=origins,
+#    allow_credentials=True,
+#    allow_methods=["*"],
+#    allow_headers=["*"],
+# )
 
 
 @app.on_event("startup")
