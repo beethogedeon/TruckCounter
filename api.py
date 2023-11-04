@@ -1,31 +1,22 @@
 from os.path import join
-
 import json
-
 import aiofiles.tempfile
 import os
-from PIL import Image
 from loguru import logger
-import sys
-import cv2
-
-from fastapi.middleware.cors import CORSMiddleware
-
-from io import BytesIO
-
-import numpy as np
-from fastapi import FastAPI, Request, UploadFile, File, WebSocket, HTTPException, status, WebSocketDisconnect
-from fastapi.responses import RedirectResponse, StreamingResponse
+from sys import stderr
+from cv2 import IMREAD_UNCHANGED, imdecode, imencode
+from numpy import frombuffer, uint8
+from fastapi import FastAPI, Request, UploadFile, File, WebSocket, status, WebSocketDisconnect
+from fastapi.responses import RedirectResponse
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-
-from util import bytes_to_image, image_to_bytes, TruckDetector
+from util import bytes_to_image, TruckDetector
 
 # logger
 
 logger.remove()
 logger.add(
-    sys.stderr,
+    stderr,
     colorize=True,
     format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
     level=10,
@@ -36,29 +27,9 @@ logger.add("log.log", rotation="1 MB", level="DEBUG", compression="zip")
 
 # title
 app = FastAPI(
-    title="Object Detection FastAPI Template",
-    description="""Obtain object value out of image
-                    and return image and json result""",
-    version="2023.1.31",
+    title="Truck Detection and Counting",
+    version="0.0.1",
 )
-
-# This function is needed if you want to allow client requests
-# from specific domains (specified in the origins argument)
-# to access resources from the FastAPI server,
-# and the client and server are hosted on different domains.
-# origins = [
-#    "http://localhost",
-#    "http://localhost:8008",
-#    "*"
-# ]
-
-# app.add_middleware(
-#    CORSMiddleware,
-#    allow_origins=origins,
-#    allow_credentials=True,
-#    allow_methods=["*"],
-#    allow_headers=["*"],
-# )
 
 
 @app.on_event("startup")
@@ -87,7 +58,7 @@ def perform_healthcheck():
     """
     It basically sends a GET request to the route & hopes to get a "200"
     response code. Failing to return a 200 response code just enables
-    the GitHub Actions to rollback to the last version the project was
+    the GitHub Actions to roll back to the last version the project was
     found in a "working condition". It acts as a last line of defense in
     case something goes south.
     Additionally, it also returns a JSON response in the form of:
@@ -152,12 +123,12 @@ async def websocket_endpoint(websocket: WebSocket):
         truck_detector = TruckDetector()
         while True:
             contents = await websocket.receive_bytes()
-            arr = np.frombuffer(contents, np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
+            arr = frombuffer(contents, uint8)
+            frame = imdecode(arr, IMREAD_UNCHANGED)
 
             annotated_frame = truck_detector.callback(frame)
 
-            ret, buffer = cv2.imencode('.jpg', annotated_frame)
+            ret, buffer = imencode('.jpg', annotated_frame)
 
             await websocket.send_json(
                 json.dumps({"truck_number": truck_detector.line_zone.in_count + truck_detector.line_zone.out_count}))

@@ -1,8 +1,7 @@
-from enum import Enum
 import supervision as sv
 from ultralytics import YOLO
-import numpy as np
-import cv2
+from numpy import ndarray
+from cv2 import VideoCapture, imencode, imread
 from PIL import Image
 import io
 from typing import Union
@@ -10,9 +9,12 @@ from io import BytesIO
 
 
 def load_model():
-    model = YOLO("./detector.pt")
-    model.fuse()
-    return model
+    m = YOLO("./detector.pt")
+    m.fuse()
+    return m
+
+
+model = load_model()
 
 
 def bytes_to_image(binary_image: bytes) -> Image.Image:
@@ -47,11 +49,45 @@ def image_to_bytes(image: Union[Image.Image, str]) -> BytesIO:
     return return_image
 
 
+def get_results(frame):
+    results = model(frame, verbose=False)[0]
+    detections = sv.Detections.from_ultralytics(results)
+    detections = detections[detections.class_id == 7]
+
+    return detections
+
+
+def detect_from_image(image):
+    try:
+        image = imread(image)
+        results = model(image)[0]
+        detections = sv.Detections.from_ultralytics(results)
+        detections = detections[detections.class_id == 7]
+
+    except Exception as e:
+        raise ValueError("Error detection from image file 0:", e)
+
+    bounding_box_annotator = sv.BoundingBoxAnnotator()
+    label_annotator = sv.LabelAnnotator()
+
+    labels = [
+        results.names[class_id]
+        for class_id
+        in detections.class_id
+    ]
+
+    annotated_image = bounding_box_annotator.annotate(
+        scene=image, detections=detections)
+    annotated_image = label_annotator.annotate(
+        scene=annotated_image, detections=detections, labels=labels)
+
+    return annotated_image, len(detections)
+
+
 class TruckDetector:
     def __init__(self, source: Union[str, int] = None):
         self.line_zone = None
-        self.model = load_model()
-        self.CLASS_NAMES_DICT = self.model.model.names
+        self.CLASS_NAMES_DICT = model.model.names
         self.source = source
         self.generator = sv.get_video_frames_generator(source) if source else None
         self.box_annotator = sv.BoxAnnotator(thickness=4, text_thickness=4, text_scale=2)
@@ -65,14 +101,7 @@ class TruckDetector:
 
         return frame
 
-    def get_results(self, frame):
-        results = self.model(frame, verbose=False)[0]
-        detections = sv.Detections.from_ultralytics(results)
-        detections = detections[detections.class_id == 7]
-
-        return detections
-
-    def annotate_frame(self, frame: np.ndarray, detections: sv.Detections):
+    def annotate_frame(self, frame: ndarray, detections: sv.Detections):
         labels = [
             f"{self.CLASS_NAMES_DICT[class_id]} {confidence:0.2f}"
             for _, _, confidence, class_id, _ in detections
@@ -96,35 +125,9 @@ class TruckDetector:
 
         TARGET_VIDEO_PATH = f"videos/detected_video.mp4"
 
-    def detect_from_image(self, image):
-        try:
-            image = cv2.imread(image)
-            results = self.model(image)[0]
-            detections = sv.Detections.from_ultralytics(results)
-            detections = detections[detections.class_id == 7]
+    def callback(self, frame: ndarray):
 
-        except Exception as e:
-            raise ValueError("Error detection from image file 0:", e)
-
-        bounding_box_annotator = sv.BoundingBoxAnnotator()
-        label_annotator = sv.LabelAnnotator()
-
-        labels = [
-            results.names[class_id]
-            for class_id
-            in detections.class_id
-        ]
-
-        annotated_image = bounding_box_annotator.annotate(
-            scene=image, detections=detections)
-        annotated_image = label_annotator.annotate(
-            scene=annotated_image, detections=detections, labels=labels)
-
-        return annotated_image, len(detections)
-
-    def callback(self, frame: np.ndarray):
-
-        detections = self.get_results(frame)
+        detections = get_results(frame)
 
         detections = self.byte_tracker.update_with_detections(detections)
 
@@ -136,18 +139,13 @@ class TruckDetector:
 
     def __call__(self, *args, **kwargs):
 
-        print("source", self.source)
-
         if str(self.source).endswith((".jpg", ".png", ".jpeg")):
             try:
-                annotated_frame, nb_trucks = self.detect_from_image(self.source)
+                annotated_frame, nb_trucks = detect_from_image(self.source)
             except Exception as e:
                 raise ValueError("Error detection from image file:", e)
 
-            print("annotated_frame", annotated_frame)
-            print("nb_trucks", nb_trucks)
-
-            _, buffer = cv2.imencode(".jpg", annotated_frame)
+            _, buffer = imencode(".jpg", annotated_frame)
 
             IMAGE_HEADER = (b"--frame\r\n"
                             b"Content-Type: image/jpeg\r\n\r\n")
@@ -157,7 +155,7 @@ class TruckDetector:
             return annotated_image, nb_trucks
         else:
 
-            cap = cv2.VideoCapture(self.source)
+            cap = VideoCapture(self.source)
             if not cap.isOpened():
                 raise ValueError("Error opening video source")
 
